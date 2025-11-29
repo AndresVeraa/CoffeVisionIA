@@ -1,238 +1,254 @@
 // source/db/database.js
 
 import * as SQLite from 'expo-sqlite';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const DB_NAME = 'coffevision.db';
+const DEVICE_ID_KEY = 'CV_DEVICE_ID';
+const ASYNC_KEY_DIAG = 'CV_DIAGNOSES_STORE_v1';
 
 let db = null;
+const subscribers = new Set();
+let inMemoryStore = null; // solo si AsyncStorage no está disponible
 
-/**
- * Inicializa la conexión a la base de datos y crea la tabla de diagnósticos.
- * @returns {Promise<void>}
- */
-export const initializeFirebase = async () => {
-    try {
-        // En este entorno, usamos initDB para compatibilidad con la estructura de la app.
-        await initDB();
-        
-        // Función dummy para userId, ya que SQLite no maneja autenticación.
-        // Retorna un ID fijo para mantener la estructura de la aplicación.
-        const fixedUserId = 'local-device-user'; 
-        return fixedUserId; 
-    } catch (err) {
-        console.error('Error al inicializar la base de datos:', err);
-        throw err;
-    }
+const openDB = () => {
+  if (db) return db;
+  if (!SQLite || typeof SQLite.openDatabase !== 'function') {
+    console.warn('[DB] expo-sqlite native module NOT available.');
+    return null;
+  }
+  try {
+    db = SQLite.openDatabase(DB_NAME);
+    return db;
+  } catch (e) {
+    console.warn('[DB] openDatabase error:', e);
+    return null;
+  }
 };
 
-/**
- * Función base para inicializar la conexión a la base de datos SQLite.
- * @returns {Promise<void>}
- */
+const runSql = (sql, params = []) =>
+  new Promise((resolve, reject) => {
+    const database = openDB();
+    if (!database) return reject(new Error('expo-sqlite native module not available (openDB returned null).'));
+    try {
+      database.transaction(tx => {
+        tx.executeSql(
+          sql,
+          params,
+          (_, result) => resolve(result),
+          (_, error) => {
+            reject(error);
+            return false;
+          }
+        );
+      }, (txError) => reject(txError));
+    } catch (err) {
+      reject(err);
+    }
+  });
+
+// --- Fallback helpers usando AsyncStorage ---
+const readAsyncStore = async () => {
+  if (!AsyncStorage) {
+    if (inMemoryStore === null) inMemoryStore = [];
+    return inMemoryStore;
+  }
+  try {
+    const raw = await AsyncStorage.getItem(ASYNC_KEY_DIAG);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.warn('[DB] readAsyncStore error:', e);
+    return [];
+  }
+};
+
+const writeAsyncStore = async (arr) => {
+  if (!AsyncStorage) {
+    inMemoryStore = arr;
+    return;
+  }
+  try {
+    await AsyncStorage.setItem(ASYNC_KEY_DIAG, JSON.stringify(arr));
+  } catch (e) {
+    console.warn('[DB] writeAsyncStore error:', e);
+  }
+};
+
+// --- Init DB (try sqlite, otherwise no-op) ---
 export const initDB = async () => {
-    try {
-        db = await SQLite.openDatabaseAsync('agros.db');
-        
-        // 1. Crear tabla si no existe (Schema base con todas las columnas actuales)
-        await db.execAsync(`
-            PRAGMA journal_mode = WAL;
-            CREATE TABLE IF NOT EXISTS diagnoses (
-                id INTEGER PRIMARY KEY NOT NULL,
-                plant_name TEXT, 
-                issue TEXT NOT NULL, 
-                date TEXT NOT NULL, 
-                status TEXT NOT NULL, 
-                image_uri TEXT NOT NULL,
-                confidence REAL,
-                notes TEXT
-            );
-        `);
-
-        // 2. Lógica de Migración (Soluciona el error "no such column: confidence")
-        // Si la tabla existía de una versión anterior sin estas columnas, CREATE IF NOT EXISTS no las añade.
-        // Intentamos añadirlas, ignorando el error si ya existen.
-        
-        try {
-            await db.runAsync("ALTER TABLE diagnoses ADD COLUMN confidence REAL");
-            console.log("Migración: Columna 'confidence' añadida.");
-        } catch (e) {
-            // Ignoramos el error si la columna ya existe.
-            if (e.message.includes("duplicate column name")) {
-                console.log("Migración: Columna 'confidence' ya existía.");
-            } else {
-                 console.warn("Advertencia al migrar columna 'confidence':", e);
-            }
-        }
-        
-        try {
-            await db.runAsync("ALTER TABLE diagnoses ADD COLUMN notes TEXT");
-            console.log("Migración: Columna 'notes' añadida.");
-        } catch (e) {
-            // Ignoramos el error si la columna ya existe.
-            if (e.message.includes("duplicate column name")) {
-                 console.log("Migración: Columna 'notes' ya existía.");
-            } else {
-                 console.warn("Advertencia al migrar columna 'notes':", e);
-            }
-        }
-        
-        console.log('Base de datos SQLite inicializada y esquema verificado.');
-    } catch (err) {
-        console.error('Error FATAL al inicializar/migrar la base de datos:', err);
-        throw err;
-    }
+  const database = openDB();
+  if (!database) {
+    console.warn('[DB] initDB: SQLite not available — using AsyncStorage fallback.');
+    return;
+  }
+  try {
+    await runSql(
+      `CREATE TABLE IF NOT EXISTS diagnoses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plant_name TEXT,
+        issue TEXT,
+        status TEXT,
+        treatment TEXT,
+        image_uri TEXT,
+        confidence REAL,
+        created_at TEXT,
+        notes TEXT
+      );`
+    );
+    console.log('[DB] initDB: sqlite table ready');
+  } catch (e) {
+    console.error('[DB] initDB sqlite error:', e);
+  }
 };
 
-
-/**
- * Inserta un nuevo diagnóstico.
- * Adaptamos los parámetros para que se ajusten al flujo de la aplicación (imagenUri, result/issue, confidence).
- * @param {Object} diagnosisData - Datos del diagnóstico.
- * @param {string} diagnosisData.imageUri - URI local de la imagen.
- * @param {string} diagnosisData.result - Resultado del diagnóstico (Sana, Roya Temprana, etc.).
- * @param {number} diagnosisData.confidence - Nivel de confianza del modelo (0.0 a 1.0).
- * @param {string} [diagnosisData.notes=''] - Notas opcionales del usuario.
- * @returns {Promise<number>} ID del registro insertado
- */
-export const saveDiagnosisRecord = async ({ imageUri, result, confidence, notes = '' }) => {
-    if (!db) throw new Error('Base de datos no inicializada');
-    
-    // Mapeo a los campos de SQLite:
-    const issue = result; // Mapeamos el 'result' del IA al 'issue' de la tabla.
-    const date = new Date().toISOString();
-    const plant_name = 'Café'; // Asumimos 'Café' por defecto.
-    const status = result.includes('Sana') ? 'Sano' : 'Infectado'; 
-    
-    try {
-        const sql = `INSERT INTO diagnoses (plant_name, issue, date, status, image_uri, confidence, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-        const values = [plant_name, issue, date, status, imageUri, confidence, notes];
-
-        const result = await db.runAsync(sql, values);
-        console.log("Diagnóstico SQLite guardado con ID: ", result.lastInsertRowId);
-        return result.lastInsertRowId;
-    } catch (err) {
-        console.error('Error al insertar diagnóstico:', err);
-        throw err;
-    }
+const notifySubscribers = async () => {
+  try {
+    const rows = await fetchDiagnoses();
+    subscribers.forEach(cb => {
+      try { cb(rows); } catch (e) { console.error('[DB] subscriber cb error', e); }
+    });
+  } catch (e) {
+    console.error('[DB] notifySubscribers error:', e);
+  }
 };
 
-/**
- * Obtiene todos los diagnósticos (fetchDiagnoses).
- * Esta función reemplaza la lógica de 'onSnapshot' de Firestore.
- * @returns {Promise<Array<Object>>}
- */
-export const fetchDiagnoses = async () => {
-    if (!db) throw new Error('Base de datos no inicializada');
-    
-    try {
-        // Obtenemos todos los registros, ordenados por ID (que es secuencial) de forma descendente.
-        const allRows = await db.getAllAsync(
-            'SELECT id, image_uri, issue as result, date as timestamp, status, confidence FROM diagnoses ORDER BY id DESC'
-        );
-        
-        // Renombramos 'issue' a 'result' y 'date' a 'timestamp' para mantener la compatibilidad con el front-end de Firestore.
-        return allRows; 
-    } catch (err) {
-        console.error('Error al obtener diagnósticos:', err);
-        throw err;
+export const initializeFirebase = async () => {
+  await initDB();
+  try {
+    if (AsyncStorage) {
+      let deviceId = await AsyncStorage.getItem(DEVICE_ID_KEY);
+      if (!deviceId) {
+        deviceId = `device-${Date.now()}`;
+        await AsyncStorage.setItem(DEVICE_ID_KEY, deviceId);
+      }
+      return deviceId;
     }
+  } catch (e) {
+    console.warn('[DB] initializeFirebase warning:', e);
+  }
+  return `device-${Date.now()}`;
 };
 
-/**
- * Esta función es un wrapper para simular el comportamiento de suscripción (onSnapshot)
- * de Firestore, pero para SQLite solo realiza un fetch único.
- * @param {function} callback - Función a ejecutar con los datos actualizados.
- * @returns {function} Función de desuscripción (dummy).
- */
-export const subscribeToDiagnosisRecords = (callback) => {
-    // Definimos una función que obtendrá los datos de forma asíncrona.
-    const refreshData = async () => {
-        try {
-            const records = await fetchDiagnoses();
-            callback(records);
-        } catch (e) {
-            // El error real se mostraría aquí, pero lo reportamos en fetchDiagnoses
-            console.error("Error al refrescar datos SQLite:", e);
-        }
-    };
-    
-    // Llamar una vez para obtener los datos iniciales.
-    refreshData();
+// --- Public API funcs (try sqlite; fallback to AsyncStorage) ---
+export const insertDiagnosis = async (plantName, issue, dateIso, status, imageUri, opts = {}) => {
+  await initDB();
+  const treatmentStr = Array.isArray(opts.treatment) ? JSON.stringify(opts.treatment) : (opts.treatment ? JSON.stringify([opts.treatment]) : null);
+  const confidence = (typeof opts.confidence === 'number') ? opts.confidence : (opts.confidence ?? null);
+  const notes = opts.notes || '';
 
-    // Como SQLite no tiene un listener en tiempo real, esta función es una función vacía.
-    return () => {}; 
-};
+  const database = openDB();
+  if (database) {
+    const res = await runSql(
+      `INSERT INTO diagnoses (plant_name, issue, status, treatment, image_uri, confidence, created_at, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [plantName, issue, status, treatmentStr, imageUri, confidence, dateIso, notes]
+    );
+    await notifySubscribers();
+    return (res && (res.insertId ?? null)) || null;
+  }
 
-/**
- * Obtiene el ID del usuario actual (fijo para SQLite).
- * @returns {string | null} El ID de usuario.
- */
-export const getUserId = () => 'local-device-user';
-
-// Exportaciones adicionales si son necesarias para otras pantallas:
-export const getDiagnosisById = async (id) => {
-    if (!db) throw new Error('Base de datos no inicializada');
-    
-    try {
-        const row = await db.getFirstAsync(
-            'SELECT * FROM diagnoses WHERE id = ?',
-            [id]
-        );
-        return row || null;
-    } catch (err) {
-        console.error('Error al obtener diagnóstico:', err);
-        throw err;
-    }
-};
-
-export const updateDiagnosis = async (id, updates) => {
-    if (!db) throw new Error('Base de datos no inicializada');
-    
-    try {
-        // Lógica simplificada de actualización:
-        const setClause = Object.keys(updates)
-            .map(key => `${key} = ?`)
-            .join(', ');
-        const values = [...Object.values(updates), id];
-        
-        await db.runAsync(
-            `UPDATE diagnoses SET ${setClause} WHERE id = ?`,
-            values
-        );
-        console.log(`Diagnóstico ${id} actualizado.`);
-    } catch (err) {
-        console.error('Error al actualizar diagnóstico:', err);
-        throw err;
-    }
+  // fallback using AsyncStorage / memory
+  const list = await readAsyncStore();
+  // generar id incremental
+  const lastId = list.length ? Math.max(...list.map(r => r.id || 0)) : 0;
+  const newRecord = {
+    id: lastId + 1,
+    plant_name: plantName,
+    issue,
+    status,
+    treatment: treatmentStr ? (() => { try { return JSON.parse(treatmentStr); } catch { return null; } })() : null,
+    treatment_raw: treatmentStr,
+    image_uri: imageUri,
+    confidence,
+    created_at: dateIso,
+    notes
+  };
+  list.unshift(newRecord); // orden desc
+  await writeAsyncStore(list);
+  await notifySubscribers();
+  return newRecord.id;
 };
 
 export const deleteDiagnosis = async (id) => {
-    if (!db) throw new Error('Base de datos no inicializada');
-    
-    try {
-        await db.runAsync('DELETE FROM diagnoses WHERE id = ?', [id]);
-        console.log(`Diagnóstico ${id} eliminado.`);
-    } catch (err) {
-        console.error('Error al eliminar diagnóstico:', err);
-        throw err;
-    }
+  await initDB();
+  const database = openDB();
+  if (database) {
+    await runSql('DELETE FROM diagnoses WHERE id = ?', [id]);
+    await notifySubscribers();
+    return;
+  }
+  const list = await readAsyncStore();
+  const filtered = list.filter(r => r.id !== id);
+  await writeAsyncStore(filtered);
+  await notifySubscribers();
 };
 
-export async function insertDiagnosis(plantName, issue, date, status, photoUri) {
-    if (!db) throw new Error('Base de datos no inicializada');
-    
-    // Mapeo a los campos de SQLite:
-    const imageUri = photoUri; // Usamos directamente el URI de la foto.
-    const confidence = null; // Sin valor de confianza por defecto.
-    const notes = ''; // Sin notas por defecto.
-    
+export const fetchDiagnoses = async () => {
+  await initDB();
+  const database = openDB();
+  if (database) {
     try {
-        const sql = `INSERT INTO diagnoses (plant_name, issue, date, status, image_uri, confidence, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-        const values = [plantName, issue, date, status, imageUri, confidence, notes];
-
-        const result = await db.runAsync(sql, values);
-        console.log("Diagnóstico SQLite guardado con ID: ", result.lastInsertRowId);
-        return result.lastInsertRowId;
-    } catch (err) {
-        console.error('Error al insertar diagnóstico:', err);
-        throw err;
+      const res = await runSql('SELECT * FROM diagnoses ORDER BY id DESC', []);
+      const rows = res.rows && res.rows._array ? res.rows._array : [];
+      return rows.map(r => ({
+        ...r,
+        treatment: r.treatment ? (() => { try { return JSON.parse(r.treatment); } catch { return null; } })() : null,
+        created_at: r.created_at || null,
+        image_uri: r.image_uri || null
+      }));
+    } catch (e) {
+      console.error('[DB] fetchDiagnoses sqlite error:', e);
+      return [];
     }
-}
+  }
+  // fallback AsyncStorage
+  const list = await readAsyncStore();
+  return list.map(r => ({
+    ...r,
+    treatment: r.treatment || (r.treatment_raw ? (() => { try { return JSON.parse(r.treatment_raw); } catch { return null; } })() : null),
+    created_at: r.created_at || null,
+    image_uri: r.image_uri || null
+  }));
+};
+
+export const getDiagnosisById = async (id) => {
+  await initDB();
+  const database = openDB();
+  if (database) {
+    try {
+      const res = await runSql('SELECT * FROM diagnoses WHERE id = ? LIMIT 1', [id]);
+      const row = res.rows && res.rows._array && res.rows._array[0] ? res.rows._array[0] : null;
+      if (!row) return null;
+      return {
+        ...row,
+        treatment: row.treatment ? (() => { try { return JSON.parse(row.treatment); } catch { return null; } })() : null,
+        created_at: row.created_at || null,
+        image_uri: row.image_uri || null
+      };
+    } catch (e) {
+      console.error('[DB] getDiagnosisById sqlite error:', e);
+      return null;
+    }
+  }
+  const list = await readAsyncStore();
+  const found = list.find(r => r.id === id) || null;
+  return found ? {
+    ...found,
+    treatment: found.treatment || (found.treatment_raw ? (() => { try { return JSON.parse(found.treatment_raw); } catch { return null; } })() : null)
+  } : null;
+};
+
+export const subscribeToDiagnosisRecords = (cb) => {
+  if (typeof cb !== 'function') return () => {};
+  subscribers.add(cb);
+  (async () => {
+    try {
+      const rows = await fetchDiagnoses();
+      cb(rows);
+    } catch (e) {
+      console.error('[DB] subscribe initial fetch error:', e);
+      cb([]);
+    }
+  })();
+  return () => { subscribers.delete(cb); };
+};
