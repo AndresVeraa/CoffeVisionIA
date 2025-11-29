@@ -215,3 +215,24 @@ export const deleteDiagnosis = async (id) => {
         throw err;
     }
 };
+
+export async function insertDiagnosis(plantName, issue, date, status, photoUri) {
+    if (!db) throw new Error('Base de datos no inicializada');
+    
+    // Mapeo a los campos de SQLite:
+    const imageUri = photoUri; // Usamos directamente el URI de la foto.
+    const confidence = null; // Sin valor de confianza por defecto.
+    const notes = ''; // Sin notas por defecto.
+    
+    try {
+        const sql = `INSERT INTO diagnoses (plant_name, issue, date, status, image_uri, confidence, notes) VALUES (?, ?, ?, ?, ?, ?, ?)`;
+        const values = [plantName, issue, date, status, imageUri, confidence, notes];
+
+        const result = await db.runAsync(sql, values);
+        console.log("Diagnóstico SQLite guardado con ID: ", result.lastInsertRowId);
+        return result.lastInsertRowId;
+    } catch (err) {
+        console.error('Error al insertar diagnóstico:', err);
+        throw err;
+    }
+}

@@ -227,35 +227,50 @@ export default function AnalysisScreen() {
 
   const handleSaveDiagnosis = async () => {
     if (!diagnosis || !uri) {
-      setSaveMessage({ type: 'error', text: 'No hay diagnóstico para guardar.' });
-      return;
+        setSaveMessage({ type: 'error', text: 'No hay diagnóstico para guardar.' });
+        return;
     }
 
     setIsSaving(true);
     setSaveMessage(null);
 
     try {
-      const currentDate = new Date().toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-      });
+        const createdAt = new Date().toISOString();
 
-      await insertDiagnosis(
-        diagnosis.plant_name || 'Desconocido',
-        diagnosis.issue || 'No identificado',
-        currentDate,
-        diagnosis.status || 'Pendiente',
-        uri
-      );
+        // extraer recomendaciones / treatment
+        const rawRecs = diagnosis.recommendations || diagnosis.recomendaciones || diagnosis.treatment || diagnosis.notes || null;
+        // normalizar a array de strings
+        let treatmentArray = [];
+        if (Array.isArray(rawRecs)) treatmentArray = rawRecs;
+        else if (typeof rawRecs === 'string') {
+            // buscar líneas con "- " o separar por saltos de línea
+            const lines = rawRecs.split('\n').map(l => l.trim()).filter(Boolean);
+            const bullets = lines.filter(l => l.startsWith('- ')).map(l => l.substring(2).trim());
+            treatmentArray = bullets.length ? bullets : lines;
+        }
 
-      setSaveMessage({ type: 'success', text: '✓ Diagnóstico guardado' });
+        // preparar notas legibles (guardamos el bloque original también)
+        const notes = treatmentArray.length ? `Recomendaciones:\n${treatmentArray.map(r => `- ${r}`).join('\n')}` :
+                      (rawRecs ? String(rawRecs) : '');
+
+        const confidence = (typeof diagnosis.confidence === 'number') ? diagnosis.confidence : null;
+
+        await insertDiagnosis(
+            diagnosis.plant_name || 'Desconocido',
+            diagnosis.issue || diagnosis.result || 'No identificado',
+            createdAt,
+            diagnosis.status || 'Pendiente',
+            uri,
+            { treatment: treatmentArray, notes, confidence }
+        );
+
+        setSaveMessage({ type: 'success', text: '✓ Diagnóstico guardado' });
     } catch (e) {
-      console.error("Error al guardar:", e);
-      setSaveMessage({ type: 'error', text: 'Error al guardar. Inténtalo de nuevo.' });
+        console.error("Error al guardar:", e);
+        setSaveMessage({ type: 'error', text: 'Error al guardar. Inténtalo de nuevo.' });
     } finally {
-      setIsSaving(false);
-      setTimeout(() => setSaveMessage(null), 3000);
+        setIsSaving(false);
+        setTimeout(() => setSaveMessage(null), 3000);
     }
   };
 
