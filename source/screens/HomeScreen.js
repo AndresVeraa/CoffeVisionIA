@@ -199,8 +199,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#38761D',
   },
-  buttonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
-  buttonTextSecondary: { color: '#38761D', fontSize: 16, fontWeight: 'bold', marginLeft: 10 },
+  buttonText: { color: '#FFF', fontSize: 16, fontWeight: 'bold', marginLeft: 1
+    
+   },
+  buttonTextSecondary: { color: '#38761D', fontSize: 16, fontWeight: 'bold', marginLeft: 3 },
 
   infoCard: {
     flexDirection: 'row',

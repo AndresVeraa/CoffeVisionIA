@@ -40,7 +40,7 @@ function InicioStackScreen() {
             <Stack.Screen 
                 name="Home" 
                 component={HomeScreen} 
-                options={{ title: 'CoffeVision IA', headerLeft: () => null }}
+                options={{ title: 'Agente de deteccion', headerLeft: () => null }}
             />
             {/* Renombrado de 'CameraScreen' a 'Camera' para consistencia con los demás componentes */}
             <Stack.Screen 
