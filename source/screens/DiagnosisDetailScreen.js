@@ -1,305 +1,253 @@
+// source/screens/DiagnosisDetailScreen.js
+
 import React from 'react';
-import { StyleSheet, Text, View, ScrollView, Image, Linking } from 'react-native';
-import { useRoute } from '@react-navigation/native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { View, Text, StyleSheet, Image, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+// Eliminada la importación de expo-linking para resolver el error de dependencia
+// import * as Linking from 'expo-linking'; 
+import { deleteDiagnosis } from '../db/database';
 
 // --- Constantes y Estilos ---
-const PRIMARY_COLOR = '#6AA84F'; // Verde
-const ACCENT_COLOR = '#D32F2F'; // Rojo para problemas
-const CARD_BG = '#FFFFFF';
-
-/**
- * Función para formatear la fecha a un formato legible.
- */
-const formatTimestamp = (isoString) => {
-    const date = new Date(isoString);
-    return date.toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+const COLORS = {
+    primary: '#4CAF50', // Verde café
+    secondary: '#795548', // Café
+    background: '#F5F5F5',
+    text: '#333333',
+    success: '#8BC34A',
+    danger: '#F44336',
+    warning: '#FFC107',
+    info: '#2196F3',
 };
 
-/**
- * Componente auxiliar para filas de detalle
- */
-const DetailRow = ({ icon, label, value, highlight, color = PRIMARY_COLOR }) => (
-  <View style={styles.detailRow}>
-    <MaterialCommunityIcons name={icon} size={20} color={color} style={styles.rowIcon} />
-    <Text style={styles.rowLabel}>{label}:</Text>
-    <Text style={[styles.rowValue, highlight && styles.highlightValue, { color: color }]}>{value}</Text>
-  </View>
-);
-
-/**
- * DiagnosisDetailScreen component: Muestra el detalle completo de un diagnóstico guardado.
- */
-export default function DiagnosisDetailScreen() {
-  const route = useRoute();
-  const { diagnosis } = route.params || {};
-
-  if (!diagnosis) {
-    return (
-      <View style={styles.centeredContainer}>
-        <Text style={styles.errorText}>Error: No se encontró el diagnóstico.</Text>
-      </View>
-    );
-  }
-
-  const statusColor = diagnosis.status === 'Grave' ? ACCENT_COLOR : diagnosis.status === 'Moderado' ? '#FF9800' : PRIMARY_COLOR;
-  const treatmentList = (diagnosis.treatment && Array.isArray(diagnosis.treatment)) ? diagnosis.treatment : [];
-  const sourceList = (diagnosis.sources && Array.isArray(diagnosis.sources)) ? diagnosis.sources : [];
-
-  return (
-    <ScrollView style={styles.scrollView} contentContainerStyle={styles.container}>
-      
-      <Text style={styles.mainTitle}>Análisis Detallado</Text>
-      
-      {/* Sección de Imagen */}
-      {diagnosis.photoUri && (
-        <Image source={{ uri: diagnosis.photoUri }} style={styles.photoPreview} />
-      )}
-      
-      {/* Tarjeta de Información General */}
-      <View style={styles.infoCard}>
-        <Text style={styles.cardTitle}>Información Clave</Text>
-        
-        <DetailRow 
-            icon="calendar-clock" 
-            label="Fecha de Guardado" 
-            value={formatTimestamp(diagnosis.timestamp)} 
-            color="#666"
-        />
-        <DetailRow 
-            icon="spa" 
-            label="Cultivo Identificado" 
-            value={diagnosis.plant_name || 'Desconocido'} 
-        />
-        <DetailRow 
-            icon="bug" 
-            label="Problema/Enfermedad" 
-            value={diagnosis.issue || 'No especificado'} 
-            highlight={true}
-            color={ACCENT_COLOR}
-        />
-        
-        <View style={styles.statusContainer}>
-          <Text style={styles.statusLabel}>Nivel de Severidad:</Text>
-          <Text style={[
-            styles.statusValue,
-            { color: statusColor }
-          ]}>
-            {diagnosis.status || 'N/A'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Tarjeta de Tratamiento */}
-      {treatmentList.length > 0 && (
-          <View style={styles.treatmentCard}>
-              <Text style={styles.treatmentTitle}>Plan de Acción y Tratamiento</Text>
-              {treatmentList.map((item, index) => (
-                <View key={index} style={styles.treatmentItem}>
-                  <Text style={styles.treatmentBullet}>•</Text>
-                  <Text style={styles.treatmentText}>{item}</Text>
-                </View>
-              ))}
-          </View>
-      )}
-
-      {/* Tarjeta de Fuentes (Citas) */}
-      {sourceList.length > 0 && (
-        <View style={styles.sourcesCard}>
-          <Text style={styles.sourcesTitle}>Fuentes de Búsqueda (Google)</Text>
-          {sourceList.map((source, index) => (
-            <TouchableOpacity 
-                key={index} 
-                style={styles.sourceLink} 
-                onPress={() => Linking.openURL(source.uri)}
-            >
-              <MaterialCommunityIcons name="link-variant" size={14} color="#007BFF" />
-              <Text style={styles.sourceText} numberOfLines={1}>
-                 {source.title || new URL(source.uri).hostname}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-      
-      <View style={{ height: 40 }} /> {/* Espacio inferior */}
-    </ScrollView>
-  );
-}
-
-
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  container: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  mainTitle: {
-    fontSize: 26,
-    fontWeight: '800',
-    color: PRIMARY_COLOR,
-    marginBottom: 20,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    fontSize: 18,
-    color: ACCENT_COLOR,
-  },
-  photoPreview: {
-    width: '100%',
-    height: 300,
-    borderRadius: 15,
-    resizeMode: 'cover',
-    marginBottom: 25,
-    borderWidth: 4,
-    borderColor: PRIMARY_COLOR + '55',
-  },
-  // --- Estilos de Tarjetas ---
-  infoCard: {
-    width: '100%',
-    backgroundColor: CARD_BG,
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-  },
-  treatmentCard: {
-    width: '100%',
-    backgroundColor: CARD_BG,
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-  },
-  sourcesCard: {
-    width: '100%',
-    backgroundColor: '#E6FFE6', // Fondo verde claro
-    borderRadius: 15,
-    padding: 15,
-    marginBottom: 20,
-    borderLeftWidth: 5,
-    borderLeftColor: PRIMARY_COLOR,
-  },
-  
-  // --- Contenido de Tarjeta ---
-  cardTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: PRIMARY_COLOR,
-    marginBottom: 15,
-    borderBottomWidth: 2,
-    borderBottomColor: PRIMARY_COLOR + '22',
-    paddingBottom: 5,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  rowIcon: {
-    marginRight: 10,
-  },
-  rowLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#444',
-    flex: 1,
-  },
-  rowValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    flex: 2,
-    textAlign: 'right',
-  },
-  highlightValue: {
-    fontWeight: 'bold',
-  },
-  statusContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-    marginTop: 10,
-  },
-  statusLabel: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#444',
-  },
-  statusValue: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  
-  // --- Estilos de Tratamiento ---
-  treatmentTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#444',
-    marginBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 5,
-  },
-  treatmentItem: {
-    flexDirection: 'row',
-    marginBottom: 10,
-    alignItems: 'flex-start',
-  },
-  treatmentBullet: {
-    fontSize: 16,
-    color: PRIMARY_COLOR,
-    marginRight: 8,
-    lineHeight: 22,
-  },
-  treatmentText: {
-    flex: 1,
-    fontSize: 15,
-    color: '#555',
-    lineHeight: 22,
-  },
-  
-  // --- Estilos de Fuentes ---
-  sourcesTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: PRIMARY_COLOR,
-    marginBottom: 8,
-  },
-  sourceLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
-  },
-  sourceText: {
-    fontSize: 13,
-    color: '#007BFF', // Color de enlace azul
-    marginLeft: 5,
-    textDecorationLine: 'underline',
-    flex: 1,
-  },
+    container: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+    },
+    scrollContent: {
+        padding: 20,
+    },
+    header: {
+        fontSize: 24,
+        fontWeight: 'bold',
+        color: COLORS.secondary,
+        marginBottom: 20,
+        textAlign: 'center',
+    },
+    imageContainer: {
+        alignItems: 'center',
+        marginBottom: 20,
+        backgroundColor: 'white',
+        borderRadius: 15,
+        padding: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    fullImage: {
+        width: '100%',
+        height: 350,
+        borderRadius: 10,
+        resizeMode: 'contain',
+        backgroundColor: COLORS.background,
+    },
+    detailCard: {
+        backgroundColor: 'white',
+        borderRadius: 15,
+        padding: 20,
+        marginBottom: 20,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 3.84,
+        elevation: 5,
+    },
+    detailTitle: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: COLORS.secondary,
+        marginBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: COLORS.background,
+        paddingBottom: 5,
+    },
+    row: {
+        flexDirection: 'row',
+        marginBottom: 8,
+        alignItems: 'center',
+    },
+    label: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        color: COLORS.text,
+        width: 120,
+    },
+    value: {
+        fontSize: 14,
+        color: COLORS.text,
+        flexShrink: 1,
+    },
+    adviceText: {
+        fontSize: 14,
+        color: COLORS.text,
+        lineHeight: 20,
+        marginTop: 10,
+    },
+    buttonDanger: {
+        backgroundColor: COLORS.danger,
+        padding: 15,
+        borderRadius: 10,
+        alignItems: 'center',
+        marginTop: 20,
+        flexDirection: 'row',
+        justifyContent: 'center',
+    },
+    buttonText: {
+        color: 'white',
+        fontSize: 16,
+        fontWeight: 'bold',
+        marginLeft: 10,
+    },
 });
+
+// Función de ayuda para obtener la recomendación (copiada de AnalysisScreen)
+const getAdvice = (result) => {
+    if (result.includes('Sana')) {
+        return "¡Excelente! Continúa la vigilancia regular. Asegúrate de que las condiciones de suelo y nutrientes sean óptimas para mantener la salud del cultivo.";
+    } else if (result.includes('Temprana')) {
+        return "Se detectan signos tempranos de roya. Esto es el momento crítico para actuar. Se recomienda la remoción inmediata de hojas afectadas y la aplicación de fungicidas preventivos aprobados. Consulta a un agrónomo local para un plan de choque.";
+    } else if (result.includes('Avanzada')) {
+        return "El nivel de infección es alto y requiere intervención urgente. Implementa un plan de manejo integrado que incluya poda severa, control químico riguroso y mejora de la ventilación en el cultivo. La producción de esta planta podría estar comprometida.";
+    }
+    return "Recomendación no disponible. Por favor, consulta un especialista.";
+};
+
+
+/**
+ * Pantalla de detalle para un registro de diagnóstico específico.
+ */
+export default function DiagnosisDetailScreen({ route, navigation }) {
+    const { record } = route.params;
+
+    if (!record) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.header}>Error</Text>
+                <Text style={styles.detailCard}>No se pudo cargar el registro de diagnóstico.</Text>
+            </View>
+        );
+    }
+
+    const handleDelete = () => {
+        // Alerta personalizada para confirmar la eliminación
+        Alert.alert(
+            "Confirmar Eliminación",
+            "¿Estás seguro de que quieres eliminar este registro de diagnóstico? Esta acción no se puede deshacer.",
+            [
+                {
+                    text: "Cancelar",
+                    style: "cancel"
+                },
+                { 
+                    text: "Eliminar", 
+                    onPress: async () => {
+                        try {
+                            await deleteDiagnosis(record.id);
+                            // En React Native, usamos Alert en lugar de un modal personalizado
+                            // ya que es parte del entorno nativo.
+                            Alert.alert("Éxito", "El diagnóstico ha sido eliminado.");
+                            navigation.goBack(); // Volver a la lista después de eliminar
+                        } catch (e) {
+                            console.error("Error al eliminar:", e);
+                            Alert.alert("Error", "Fallo al eliminar el registro.");
+                        }
+                    },
+                    style: "destructive"
+                }
+            ]
+        );
+    };
+
+    // Determinar el color del resultado
+    let resultColor = COLORS.info;
+    if (record.result && record.result.includes('Roya Avanzada')) {
+        resultColor = COLORS.danger;
+    } else if (record.result && record.result.includes('Roya Temprana')) {
+        resultColor = COLORS.warning;
+    } else if (record.result && record.result.includes('Sana')) {
+        resultColor = COLORS.success;
+    }
+
+
+    const formattedDate = record.timestamp 
+        ? new Date(record.timestamp).toLocaleDateString('es-CO', { 
+            year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' 
+        })
+        : 'Fecha Desconocida';
+
+    return (
+        <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+            <Text style={styles.header}>Detalle del Diagnóstico #{record.id}</Text>
+
+            <View style={styles.imageContainer}>
+                <Image 
+                    source={{ uri: record.imageUri }} 
+                    style={styles.fullImage} 
+                />
+            </View>
+
+            <View style={styles.detailCard}>
+                <Text style={styles.detailTitle}>Resultado de la Clasificación</Text>
+                
+                <View style={styles.row}>
+                    <Text style={styles.label}>Diagnóstico IA:</Text>
+                    <Text style={[styles.value, { fontWeight: 'bold', color: resultColor }]}>
+                        {record.result || 'N/A'}
+                    </Text>
+                </View>
+
+                <View style={styles.row}>
+                    <Text style={styles.label}>Nivel de Confianza:</Text>
+                    <Text style={styles.value}>
+                        {(record.confidence * 100).toFixed(1)}%
+                    </Text>
+                </View>
+
+                <View style={styles.row}>
+                    <Text style={styles.label}>Fecha y Hora:</Text>
+                    <Text style={styles.value}>
+                        {formattedDate}
+                    </Text>
+                </View>
+
+                <View style={styles.row}>
+                    <Text style={styles.label}>Planta:</Text>
+                    <Text style={styles.value}>
+                        {record.plant_name || 'Café (Default)'}
+                    </Text>
+                </View>
+
+                <Text style={[styles.detailTitle, { marginTop: 15 }]}>Recomendación</Text>
+                <Text style={styles.adviceText}>
+                    {getAdvice(record.result)}
+                </Text>
+
+                {record.notes && (
+                    <>
+                        <Text style={[styles.detailTitle, { marginTop: 15 }]}>Notas Adicionales</Text>
+                        <Text style={styles.adviceText}>{record.notes}</Text>
+                    </>
+                )}
+            </View>
+            
+            <TouchableOpacity style={styles.buttonDanger} onPress={handleDelete}>
+                <Ionicons name="trash-outline" size={20} color="white" />
+                <Text style={styles.buttonText}>Eliminar Diagnóstico</Text>
+            </TouchableOpacity>
+
+            <View style={{ height: 50 }} />
+        </ScrollView>
+    );
+}

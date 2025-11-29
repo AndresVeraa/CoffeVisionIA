@@ -1,311 +1,175 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, FlatList, ActivityIndicator, TouchableOpacity, Alert } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native'; // Hook para refrescar al enfocar
-import { useNavigation } from '@react-navigation/native'; // <-- Importar useNavigation
+// source/screens/DiagnosisScreen.js
 
-// Importar funciones de DB
-import { getDiagnoses, deleteDiagnosis } from '../db/database'; 
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, Image, TouchableOpacity } from 'react-native';
+// Se importan las funciones adaptadas para SQLite
+import { subscribeToDiagnosisRecords, initializeFirebase } from '../db/database'; 
+import DiagnosisCard from '../components/DiagnosisCard'; // Asumo que este componente existe
+import { Ionicons } from '@expo/vector-icons';
 
-// --- Constantes ---
-const PRIMARY_COLOR = '#6AA84F'; // Verde
-const ACCENT_COLOR = '#D32F2F'; // Rojo para problemas
-const CARD_BG = '#FFFFFF';
-
-/**
- * Función para formatear la fecha a un formato legible.
- * @param {string} isoString - Fecha en formato ISO string.
- * @returns {string} Fecha y hora formateada.
- */
-const formatTimestamp = (isoString) => {
-    const date = new Date(isoString);
-    return date.toLocaleDateString('es-ES', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+// --- Constantes y Estilos ---
+const COLORS = {
+    primary: '#4CAF50', // Verde café
+    secondary: '#795548', // Café
+    background: '#F5F5F5',
+    text: '#333333',
+    success: '#8BC34A',
+    danger: '#F44336',
+    warning: '#FFC107',
+    lightGray: '#DDDDDD',
 };
 
-/**
- * DiagnosisScreen component: Muestra la lista de diagnósticos guardados.
- */
-export default function DiagnosisScreen() {
-  const [diagnoses, setDiagnoses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const navigation = useNavigation(); // <-- Inicializar navegación
-
-  /**
-   * Carga los diagnósticos de la base de datos de forma asíncrona.
-   */
-  const fetchDiagnoses = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getDiagnoses();
-      setDiagnoses(data);
-    } catch (e) {
-      console.error("Error al cargar diagnósticos:", e);
-      setError('No se pudieron cargar los diagnósticos.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // Recarga los datos cada vez que la pantalla se enfoca (al cambiar de pestaña)
-  useFocusEffect(
-    useCallback(() => {
-      fetchDiagnoses();
-    }, [fetchDiagnoses])
-  );
-
-  /**
-   * Maneja la eliminación de un diagnóstico por ID.
-   */
-  const handleDelete = async (id) => {
-    Alert.alert(
-      "Confirmar Eliminación",
-      "¿Estás seguro de que quieres eliminar este diagnóstico?",
-      [
-        {
-          text: "Cancelar",
-          style: "cancel"
-        },
-        { 
-          text: "Eliminar", 
-          onPress: async () => {
-            try {
-              // Actualización optimista en UI
-              setDiagnoses(prev => prev.filter(d => d.id !== id));
-              const rowsAffected = await deleteDiagnosis(id);
-              if (!rowsAffected) {
-                // Si no se eliminó en DB, recargar para sincronizar
-                await fetchDiagnoses();
-                Alert.alert("Error", "No se pudo eliminar el diagnóstico en la base de datos.");
-              }
-            } catch (e) {
-              console.error("Fallo al eliminar:", e);
-              Alert.alert("Error", "No se pudo eliminar el diagnóstico.");
-              // Reintentar cargar para sincronizar UI
-              fetchDiagnoses();
-            }
-          },
-          style: 'destructive'
-        }
-      ],
-      { cancelable: true }
-    );
-  };
-  
-  /**
-   * Navega a la pantalla de detalles del diagnóstico.
-   */
-  const handleViewDetail = (item) => {
-    navigation.navigate('DiagnosisDetail', { diagnosis: item }); 
-  };
-
-  /**
-   * Renderiza cada elemento de diagnóstico en la lista.
-   * Memoizado para mejorar rendimiento.
-   */
-  const renderDiagnosisItem = useCallback(({ item }) => {
-    const statusColor = item.status === 'Grave' ? ACCENT_COLOR : item.status === 'Moderado' ? '#FF9800' : PRIMARY_COLOR;
-    
-    return (
-      <TouchableOpacity onPress={() => handleViewDetail(item)} style={styles.card}>
-        <View style={styles.header}>
-            <MaterialCommunityIcons name="clipboard-check-outline" size={24} color={PRIMARY_COLOR} />
-            <Text style={styles.titleText}>{item.issue || 'Diagnóstico Desconocido'}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-            <Text style={styles.label}>Cultivo:</Text>
-            <Text style={styles.value}>{item.plant_name || 'N/A'}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-            <Text style={styles.label}>Fecha:</Text>
-            <Text style={styles.value}>{formatTimestamp(item.timestamp)}</Text>
-        </View>
-
-        <View style={styles.detailRow}>
-            <Text style={styles.label}>Severidad:</Text>
-            <Text style={[styles.value, { fontWeight: 'bold', color: statusColor }]}>{item.status || 'N/A'}</Text>
-        </View>
-
-        <Text style={styles.treatmentTitle}>Tratamiento:</Text>
-        {(item.treatment && Array.isArray(item.treatment) ? item.treatment : ['No hay recomendaciones disponibles.']).slice(0, 2).map((step, index) => (
-            <Text key={index} style={styles.treatmentText}>• {step}</Text>
-        ))}
-        {item.treatment && item.treatment.length > 2 && <Text style={styles.moreText}>(Toca para ver el análisis completo)</Text>}
-
-        <TouchableOpacity 
-            style={styles.deleteButton} 
-            onPress={(e) => {
-                e.stopPropagation && e.stopPropagation(); // Previene que el toque del botón active handleViewDetail
-                handleDelete(item.id);
-            }}
-        >
-            <MaterialCommunityIcons name="delete-outline" size={20} color={ACCENT_COLOR} />
-            <Text style={styles.deleteButtonText}>Eliminar</Text>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    );
-  }, [handleViewDetail, handleDelete]);
-
-  if (loading) {
-    return (
-      <View style={styles.centeredContainer}>
-        <ActivityIndicator size="large" color={PRIMARY_COLOR} />
-        <Text style={styles.statusMessage}>Cargando historial...</Text>
-      </View>
-    );
-  }
-
-  if (error) {
-    return (
-      <View style={styles.centeredContainer}>
-        <MaterialCommunityIcons name="alert-circle" size={30} color={ACCENT_COLOR} />
-        <Text style={styles.statusMessage}>{error}</Text>
-      </View>
-    );
-  }
-
-  if (diagnoses.length === 0) {
-    return (
-      <View style={styles.centeredContainer}>
-        <MaterialCommunityIcons name="file-hidden" size={50} color="#ccc" />
-        <Text style={styles.statusMessage}>No has guardado ningún diagnóstico aún.</Text>
-        <Text style={styles.statusSubMessage}>Toma una foto y guárdala desde la pantalla de Análisis.</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <Text style={styles.mainTitle}>Historial de Diagnósticos</Text>
-      <FlatList
-        data={diagnoses}
-        renderItem={renderDiagnosisItem}
-        keyExtractor={item => String(item.id ?? item.timestamp)}
-        contentContainerStyle={styles.listContent}
-        initialNumToRender={8}
-        removeClippedSubviews={true}
-      />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    paddingTop: 40,
-  },
-  mainTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: PRIMARY_COLOR,
-    textAlign: 'center',
-    marginBottom: 15,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  statusMessage: {
-    marginTop: 15,
-    fontSize: 18,
-    color: '#555',
-    fontWeight: '600',
-  },
-  statusSubMessage: {
-    marginTop: 5,
-    fontSize: 14,
-    color: '#888',
-  },
-  listContent: {
-    paddingHorizontal: 15,
-    paddingBottom: 20,
-  },
-  card: {
-    backgroundColor: CARD_BG,
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 15,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    borderLeftWidth: 5,
-    borderLeftColor: PRIMARY_COLOR,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-    paddingBottom: 8,
-  },
-  titleText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginLeft: 10,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-  },
-  value: {
-    fontSize: 14,
-    color: '#333',
-  },
-  treatmentTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: PRIMARY_COLOR,
-    marginTop: 10,
-    marginBottom: 5,
-  },
-  treatmentText: {
-    fontSize: 13,
-    color: '#555',
-    marginLeft: 10,
-  },
-  moreText: {
-    fontSize: 12,
-    color: PRIMARY_COLOR,
-    fontStyle: 'italic',
-    textAlign: 'right',
-    marginTop: 5,
-  },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFE5E5',
-    padding: 8,
-    borderRadius: 20,
-    marginTop: 15,
-    alignSelf: 'flex-end',
-    minWidth: 100,
-  },
-  deleteButtonText: {
-    marginLeft: 5,
-    color: ACCENT_COLOR,
-    fontWeight: '600',
-  }
+    container: {
+        flex: 1,
+        backgroundColor: COLORS.background,
+    },
+    header: {
+        fontSize: 26,
+        fontWeight: 'bold',
+        color: COLORS.secondary,
+        padding: 20,
+        paddingBottom: 10,
+        textAlign: 'center',
+    },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    emptyContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 30,
+    },
+    emptyText: {
+        fontSize: 18,
+        color: COLORS.text,
+        textAlign: 'center',
+        marginTop: 10,
+    },
+    userIdText: {
+        fontSize: 12,
+        color: COLORS.text,
+        textAlign: 'center',
+        marginBottom: 10,
+        paddingHorizontal: 20,
+    },
+    listContent: {
+        paddingHorizontal: 10,
+        paddingBottom: 20,
+    },
+    cardContainer: {
+        // Estilos para el contenedor de la tarjeta (si es necesario)
+    },
+    // Estilo para el botón en caso de estar vacío
+    button: {
+        backgroundColor: COLORS.primary,
+        padding: 15,
+        borderRadius: 10,
+        alignItems: 'center',
+        marginTop: 20,
+        flexDirection: 'row',
+        justifyContent: 'center',
+    },
+    buttonText: {
+        color: 'white',
+        fontSize: 18,
+        fontWeight: 'bold',
+        marginLeft: 10,
+    },
 });
+
+export default function DiagnosisScreen({ navigation }) {
+    const [diagnostics, setDiagnostics] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [userId, setUserId] = useState(null);
+
+    // Nota: El useEffect idealmente usaría useFocusEffect para refrescar los datos 
+    // cada vez que la pantalla se enfoca, ya que SQLite no tiene listeners en tiempo real.
+    useEffect(() => {
+        let unsubscribe = () => {};
+
+        const setup = async () => {
+            try {
+                // initializeFirebase ahora llama a initDB de SQLite y retorna un ID local
+                const currentUserId = await initializeFirebase();
+                setUserId(currentUserId);
+                
+                // subscribeToDiagnosisRecords ahora hace un fetchDiagnoses de SQLite
+                unsubscribe = subscribeToDiagnosisRecords((records) => {
+                    console.log(`[DiagnosisScreen] ${records.length} registros recibidos (SQLite).`);
+                    setDiagnostics(records);
+                    setIsLoading(false);
+                });
+                
+            } catch (error) {
+                console.error("Error al cargar diagnósticos:", error);
+                setIsLoading(false);
+            }
+        };
+
+        setup();
+
+        // Limpiar la "suscripción" (que en SQLite es una función dummy) al desmontar el componente
+        return () => unsubscribe();
+    }, []);
+
+    const renderItem = ({ item }) => {
+        // Redirigir a la pantalla de detalle al presionar la tarjeta
+        const navigateToDetail = () => {
+            navigation.navigate('DiagnosisDetail', { record: item });
+        };
+
+        // El componente DiagnosisCard debe ser implementado en source/components/DiagnosisCard.js
+        return (
+            <TouchableOpacity onPress={navigateToDetail} style={styles.cardContainer}>
+                {/* DiagnosisCard debe recibir el objeto completo 'item' y usar 'item.imageUri', 
+                  'item.result', 'item.timestamp' para mostrar un resumen.
+                */}
+                <DiagnosisCard record={item} />
+            </TouchableOpacity>
+        );
+    };
+
+    if (isLoading) {
+        return (
+            <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={{ marginTop: 10, color: COLORS.secondary }}>Cargando historial...</Text>
+            </View>
+        );
+    }
+
+    // Se muestra el userId (Mandato de Canvas para apps multi-usuario/identificación de dispositivo)
+    return (
+        <View style={styles.container}>
+            <Text style={styles.header}>Historial de Diagnósticos</Text>
+            {userId && <Text style={styles.userIdText}>ID de Dispositivo: {userId}</Text>}
+            
+            {diagnostics.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                    <Ionicons name="leaf-outline" size={80} color={COLORS.lightGray} />
+                    <Text style={styles.emptyText}>
+                        Aún no tienes diagnósticos. Usa la cámara para analizar tus primeras hojas de café.
+                    </Text>
+                    <TouchableOpacity 
+                        style={{ ...styles.button, backgroundColor: COLORS.primary, padding: 10, marginTop: 20 }}
+                        onPress={() => navigation.navigate('Camera')}
+                    >
+                        <Ionicons name="camera" size={20} color="white" />
+                        <Text style={styles.buttonText}>Comenzar Análisis</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <FlatList
+                    data={diagnostics}
+                    keyExtractor={(item) => item.id.toString()} // Key debe ser string para FlatList
+                    renderItem={renderItem}
+                    contentContainerStyle={styles.listContent}
+                />
+            )}
+        </View>
+    );
+}

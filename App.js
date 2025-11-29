@@ -10,6 +10,7 @@ import { Text, View, ActivityIndicator, StyleSheet } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 
 // Importar inicialización de DB (ahora asíncrona)
+// Usamos initializeFirebase/initDB para asegurar que la DB SQLite se cargue antes de la App
 import { initDB } from './source/db/database'; 
 
 // Importar Pantallas
@@ -17,137 +18,182 @@ import HomeScreen from './source/screens/HomeScreen';
 import DiagnosisScreen from './source/screens/DiagnosisScreen'; 
 import AnalysisScreen from './source/screens/AnalysisScreen'; 
 import CameraScreen from './source/screens/CameraScreen'; 
+import DiagnosisDetailScreen from './source/screens/DiagnosisDetailScreen'; // Importado
 
 const Tab = createBottomTabNavigator();
-const InicioStack = createStackNavigator(); 
+const Stack = createStackNavigator(); // Usaremos Stack para las navegaciones anidadas
 
 /**
- * Stack para la pestaña "Inicio": permite navegar de Home a Analysis y Camera.
+ * Stack para la pestaña "Inicio": permite navegar de Home a Camera y Analysis.
  */
 function InicioStackScreen() {
-  return (
-    <InicioStack.Navigator screenOptions={{ 
-      headerShown: false // Oculta el encabezado del stack
-    }}>
-      <InicioStack.Screen name="InicioHome" component={HomeScreen} />
-      <InicioStack.Screen 
-        name="CameraScreen" 
-        component={CameraScreen} 
-        options={{ presentation: 'modal' }} 
-      /> 
-      <InicioStack.Screen name="Analysis" component={AnalysisScreen} />
-    </InicioStack.Navigator>
-  );
+    return (
+        <Stack.Navigator 
+            screenOptions={{ 
+                // Mantenemos el header en el stack, pero lo customizamos para el diseño
+                headerStyle: { backgroundColor: '#4CAF50' },
+                headerTintColor: '#fff',
+                headerTitleStyle: { fontWeight: 'bold' },
+            }}
+        >
+            {/* Usamos el nombre 'Home' en el stack para compatibilidad con la navegación */}
+            <Stack.Screen 
+                name="Home" 
+                component={HomeScreen} 
+                options={{ title: 'CoffeVision IA', headerLeft: () => null }}
+            />
+            {/* Renombrado de 'CameraScreen' a 'Camera' para consistencia con los demás componentes */}
+            <Stack.Screen 
+                name="Camera" 
+                component={CameraScreen} 
+                options={{ title: 'Captura de Hoja' }}
+            /> 
+            <Stack.Screen 
+                name="Analysis" 
+                component={AnalysisScreen} 
+                options={{ title: 'Resultado del Análisis' }}
+            />
+        </Stack.Navigator>
+    );
 }
+
+/**
+ * Stack para la pestaña "Diagnosticos": permite navegar de la lista al detalle.
+ */
+function DiagnosisStackScreen() {
+    return (
+        <Stack.Navigator 
+            screenOptions={{ 
+                headerStyle: { backgroundColor: '#4CAF50' },
+                headerTintColor: '#fff',
+                headerTitleStyle: { fontWeight: 'bold' },
+            }}
+        >
+            <Stack.Screen 
+                name="DiagnosisList" 
+                component={DiagnosisScreen} 
+                options={{ title: 'Historial Fitosanitario' }} 
+            />
+            <Stack.Screen 
+                name="DiagnosisDetail" 
+                component={DiagnosisDetailScreen} 
+                options={{ title: 'Detalle del Registro' }} 
+            />
+        </Stack.Navigator>
+    );
+}
+
 
 // Navegación principal (Tabs)
 function TabNavigator() {
-  return (
-    <Tab.Navigator
-      initialRouteName="Inicio"
-      screenOptions={{
-        tabBarActiveTintColor: '#6AA84F', 
-        tabBarInactiveTintColor: '#666', 
-        tabBarStyle: {
-          backgroundColor: '#E6FFE6', 
-          borderTopWidth: 1,
-          borderTopColor: '#C8E6C9',
-          height: 60,
-          paddingBottom: 5,
-        },
-        headerShown: false, 
-      }}
-    >
-      <Tab.Screen
-        name="Inicio"
-        component={InicioStackScreen} 
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="leaf" color={color} size={size} />
-          ),
-        }}
-      />
-      <Tab.Screen
-        name="Diagnosticos"
-        component={DiagnosisScreen}
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="clipboard-list-outline" color={color} size={size} />
-          ),
-        }}
-      />
-      {/* Usamos la misma pantalla para la pestaña de Búsqueda por simplicidad */}
-      <Tab.Screen
-        name="Buscar" 
-        component={DiagnosisScreen} 
-        options={{
-          tabBarIcon: ({ color, size }) => (
-            <MaterialCommunityIcons name="magnify" color={color} size={size} />
-          ),
-        }}
-      />
-    </Tab.Navigator>
-  );
+    return (
+        <Tab.Navigator
+            initialRouteName="Inicio"
+            screenOptions={{
+                tabBarActiveTintColor: '#4CAF50', // Ajustado a un verde más estándar
+                tabBarInactiveTintColor: '#666', 
+                tabBarStyle: {
+                    backgroundColor: '#E6FFE6', 
+                    borderTopWidth: 1,
+                    borderTopColor: '#C8E6C9',
+                    height: 60,
+                    paddingBottom: 5,
+                },
+                headerShown: false, // Ocultamos el header del Tab Navigator, ya que cada Stack tiene su propio header
+            }}
+        >
+            <Tab.Screen
+                name="Inicio"
+                component={InicioStackScreen} // Usa el Stack
+                options={{
+                    tabBarIcon: ({ color, size }) => (
+                        <MaterialCommunityIcons name="leaf" color={color} size={size} />
+                    ),
+                }}
+            />
+            <Tab.Screen
+                name="Diagnosticos"
+                component={DiagnosisStackScreen} // Usa el Stack
+                options={{
+                    tabBarIcon: ({ color, size }) => (
+                        <MaterialCommunityIcons name="clipboard-list-outline" color={color} size={size} />
+                    ),
+                }}
+            />
+            {/* Mantenemos la pestaña Buscar usando el mismo Stack de Diagnósticos por ahora */}
+            <Tab.Screen
+                name="Buscar" 
+                component={DiagnosisStackScreen} // Podría ser una pantalla Search dedicada después
+                options={{
+                    tabBarIcon: ({ color, size }) => (
+                        <MaterialCommunityIcons name="magnify" color={color} size={size} />
+                    ),
+                    tabBarLabel: 'Buscar (Demo)'
+                }}
+            />
+        </Tab.Navigator>
+    );
 } 
 
 
 export default function App() {
-  const [dbLoaded, setDbLoaded] = useState(false);
-  const [error, setError] = useState(null);
+    const [dbLoaded, setDbLoaded] = useState(false);
+    const [error, setError] = useState(null);
 
-  useEffect(() => {
-    // Función asíncrona para manejar la inicialización de la DB
-    const loadDatabase = async () => {
-        try {
-            await initDB(); // Llama al initDB asíncrono del archivo database.js
-            setDbLoaded(true); 
-        } catch (err) {
-            console.error('Fallo crítico al inicializar la base de datos:', err);
-            // Muestra error si la DB falla (ej. si no está en entorno nativo)
-            setError('Error de DB: Verifica la instalación de expo-sqlite y el entorno nativo.');
-            setDbLoaded(true); 
-        }
-    };
+    useEffect(() => {
+        // Función asíncrona para manejar la inicialización de la DB
+        const loadDatabase = async () => {
+            try {
+                // Llama al initDB asíncrono del archivo database.js (SQLite)
+                await initDB(); 
+                setDbLoaded(true); 
+            } catch (err) {
+                console.error('Fallo crítico al inicializar la base de datos:', err);
+                // Muestra error si la DB falla 
+                setError('Error de DB: Verifica la instalación de expo-sqlite y el entorno nativo.');
+                setDbLoaded(true); 
+            }
+        };
+        
+        loadDatabase();
+    }, []);
+
+    // Mostrar indicador de carga mientras la DB se inicializa
+    if (!dbLoaded) {
+        return (
+            <View style={appStyles.loadingContainer}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={appStyles.loadingText}>Cargando base de datos...</Text>
+            </View>
+        );
+    }
     
-    loadDatabase();
-  }, []);
+    // Mostrar mensaje de error si la inicialización falló
+    if (error) {
+        return (
+            <View style={[appStyles.loadingContainer, { backgroundColor: '#FBE4E4' }]}>
+                <MaterialCommunityIcons name="alert-circle" size={40} color="#D32F2F" />
+                <Text style={appStyles.errorText}>¡ERROR CRÍTICO!</Text>
+                <Text style={appStyles.errorMessage}>{error}</Text>
+                <Text style={appStyles.helpText}>Asegúrate de ejecutar en Expo Go o un emulador.</Text>
+            </View>
+        );
+    }
 
-  // Mostrar indicador de carga mientras la DB se inicializa
-  if (!dbLoaded) {
     return (
-      <View style={appStyles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6AA84F" />
-        <Text style={appStyles.loadingText}>Cargando base de datos...</Text>
-      </View>
+        <SafeAreaProvider>
+            <NavigationContainer>
+                <StatusBar style="auto" />
+                <TabNavigator />
+            </NavigationContainer>
+        </SafeAreaProvider>
     );
-  }
-  
-  // Mostrar mensaje de error si la inicialización falló
-  if (error) {
-    return (
-      <View style={[appStyles.loadingContainer, { backgroundColor: '#FBE4E4' }]}>
-        <MaterialCommunityIcons name="alert-circle" size={40} color="#D32F2F" />
-        <Text style={appStyles.errorText}>¡ERROR CRÍTICO!</Text>
-        <Text style={appStyles.errorMessage}>{error}</Text>
-        <Text style={appStyles.helpText}>Asegúrate de ejecutar en Expo Go o un emulador.</Text>
-      </View>
-    );
-  }
-
-  return (
-    <SafeAreaProvider>
-      <NavigationContainer>
-        <StatusBar style="auto" />
-        <TabNavigator />
-      </NavigationContainer>
-    </SafeAreaProvider>
-  );
 }
 
 const appStyles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E0E0E0' },
-  loadingText: { marginTop: 10, fontSize: 16, color: '#333' },
-  errorText: { marginTop: 15, fontSize: 20, fontWeight: 'bold', color: '#D32F2F' },
-  errorMessage: { marginVertical: 10, fontSize: 16, color: '#333', textAlign: 'center', paddingHorizontal: 20 },
-  helpText: { fontSize: 14, color: '#777', fontStyle: 'italic' }
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#E0E0E0' },
+    loadingText: { marginTop: 10, fontSize: 16, color: '#333' },
+    errorText: { marginTop: 15, fontSize: 20, fontWeight: 'bold', color: '#D32F2F' },
+    errorMessage: { marginVertical: 10, fontSize: 16, color: '#333', textAlign: 'center', paddingHorizontal: 20 },
+    helpText: { fontSize: 14, color: '#777', fontStyle: 'italic' }
 });
